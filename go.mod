@@ -1,3 +1,3 @@
-module example.com/sales-analytics
+module homework
 
-go 1.22
+go 1.25.4
