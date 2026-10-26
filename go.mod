@@ -1,3 +1,3 @@
-module example.com/lesson2
+module lesson5/student
 
 go 1.22
