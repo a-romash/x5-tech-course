@@ -1,141 +1,86 @@
-# Сервис уведомлений. Домашняя работа #3.
+# Самостоятельная работа после занятия 6
 
-Автор: Ромашов Артём
+Перенесите исправный однофайловый сервис заказов в несколько пакетов. Это сегодняшняя практика, перенесённая домой, чтобы в аудитории осталось время на сети. Отдельного нового алгоритма или HTTP-сервера писать не нужно. Ориентир по времени: 30–45 минут. Срок и способ сдачи преподаватель сообщает отдельно.
 
-## Что делает программа
+## Сначала запустите исходник
 
-Данная программа реализует небольшой сервис нотификаций, который умеет делать "отправку"* по одному конкретному каналу, либо по нескольким сразу. Доступные каналы: Пуши (`PushNotifier`) и почта (`EmailNotifier`)
+Откройте папку practice как отдельный проект. Терминал должен находиться рядом с go.mod.
 
-*На самом деле каналы просто хранят историю сообщений
-
-## Как запустить
-
-Все команды выполняются из корневой папки репозитория
-
-Запуск программы:
-```sh
-go run ./cmd/notify
+```bash
+go run .
+go build ./...
+go vet ./...
 ```
 
-Тесты:
-```sh
-go test -v ./...
+Файл go.mod уже подготовлен: `module example.com/orders`. Повторно go mod init не нужен. В новом пустом проекте он создавался бы командой `go mod init example.com/orders`.
+
+Сейчас программа создаёт один заказ с ID 1, клиентом «Покупатель» и статусом new. Адрес по умолчанию :8080. Данные живут только в памяти текущего процесса. Сообщение «сервис слушал бы» не означает, что программа открыла сетевой порт.
+
+## Целевая структура
+
+```text
+practice/
+    go.mod
+    cmd/orders/main.go
+    internal/
+        config/
+        handler/
+        model/
+        repository/
+        service/
 ```
 
-Версия Go: 1.22 или новее
+## Остановка 1. Пакеты
 
+Перенесите Order в model, Memory и методы хранения в repository, Service в service, Handler в handler. Точку входа перенесите в cmd/orders/main.go. Обновите импорты с учётом пути example.com/orders. Корневой main.go после переноса не должен оставаться второй копией программы.
 
-## Проверенные случаи
-
-<u>Кейс #1</u>: Успешная отправка
-
-<u>Описание</u>: Отправка в `PushNotifier` и `EmailNotifier` валидного сообщения
-
-<u>Пример</u>:
-```
-Running: All OK
-    Dispatch errors:
-        No errors
-    Notifiers:
-        Notifier's #0:
-            Type:    *practice.EmailNotifier
-            History: ["[email] Заказ готов"]
-        Notifier's #1:
-            Type:    *practice.PushNotifier
-            History: ["[push] Заказ готов"]
-Done: All OK
-```
----
-<u>Кейс #2</u>: Пустой текст
-
-<u>Описание</u>: Отправка в `PushNotifier` и `EmailNotifier`: валидное, невалидное (пустое), валидное сообщения. Получаем на второе сообщение `ErrEmptyMessage`, история сохраняет оба валидных
-
-<u>Пример</u>:
-```
-Running: Empty message between normal messages
-    Dispatch errors:
-        Error's #0:
-            Type:    ErrEmptyMessage
-            Message: канал email: пустое сообщение
-    Notifiers:
-        Notifier's #0:
-            Type:    *practice.EmailNotifier
-            History: ["[email] testing" "[email] again testing"]
-        Notifier's #1:
-            Type:    *practice.PushNotifier
-            History: ["[push] testing" "[push] again testing"]
-Done: Empty message between normal messages
-```
----
-<u>Кейс #3</u>: Нет настройки
-
-<u>Описание</u>: Отправка в `PushNotifier` валидного сообщения. В `PushNotifier` отсутствует `DeviceID`, получаем `SendError`
-
-<u>Пример</u>:
-```
-Running: No DeviceID
-    Dispatch errors:
-        Error's #0:
-            Type:    *practice.SendError
-            Channel: push
-            Reason:  не задан device id
-            Message: канал push: не задан device id
-    Notifiers:
-        Notifier's #0:
-            Type:    *practice.PushNotifier
-            History: []
-Done: No DeviceID
-```
----
-<u>Кейс #4</u>: Сломанный канал
-
-<u>Описание</u>: Отправка в `BrokenNotifier`, отлов паники и отправка в `PushNotifier` сообщения `"testing"`.
-
-<u>Пример</u>:
-```
-Running: Broken notifier (panic recovering)
-    Dispatch errors:
-        Error's #0:
-            Type:    ErrNotifierPanic
-            Message: канал broken: паника канала: драйвер канала повреждён
-    Notifiers:
-        Notifier's #0:
-            None or broken
-        Notifier's #1:
-            Type:    *practice.PushNotifier
-            History: ["[push] testing"]
-Done: Broken notifier (panic recovering)
+```bash
+go list ./...
+go build ./...
+go run ./cmd/orders
 ```
 
-## Обработка ошибок
+Проверьте, что список пакетов полный, циклических импортов нет и вывод сохранился. Пока допускается конкретный тип хранилища в Service: сначала добейтесь работающего переноса.
 
-### Разница `Dispatch` и `SafeDispatch`
+## Остановка 2. Контракты
 
-- `Dispatch` при первой ошибке делает fail fast и не отправляет в оставшиеся каналы сообщения. Возвращает `error`
-- `SafeDispatch` отлавливает ошибки и паники (используя SafeSend), не останавливает работу и дальше пытается отправить сообщения в оставшиеся каналы. Возвращает слайс всех полученных ошибок `[]error`
+Объявите интерфейс Repository рядом с service. В данном учебном проекте он описывает Save и ByID. Замените конкретный тип поля repo на этот интерфейс. Передайте Memory через конструктор. Handler тоже должен получать зависимость через конструктор и знать только нужный ему метод Create, описанный локальным интерфейсом.
 
-### Почему `recover` находится вокруг отдельного вызова?
+Все конкретные объекты создаются в main. Service не импортирует handler и конкретную реализацию repository. Глобальных изменяемых хранилищ нет. Проверку пустого имени оставьте в Service. При ошибке Save заказ не считается успешно созданным и следующий ID не увеличивается.
 
-`recover` вокруг одного вызова изолирует сбой одного канала, и паника превращается в ошибку только этого канала, остальные каналы в `SafeDispatch` продолжают работать.
+Повторите go build и go run. Убедитесь по import, что направление зависимостей соответствует этим требованиям.
 
-### Примеры использования `errors.Is` и `errors.As`
+## Остановка 3. Конфигурация
 
-Они используются в [cmd/notify/main.go](cmd/notify/main.go) в функции `resultPrint`
+Перенесите чтение HTTP_ADDR в config. Сохраните значение по умолчанию :8080. Получайте настройку при сборке приложения в main, а не внутри бизнес-методов.
 
-```go
-var typedErr *practice.SendError
-...
-switch {
-case errors.Is(err, practice.ErrEmptyMessage):
-	...
-case errors.As(err, &typedErr):
-	...
-case errors.Is(err, practice.ErrNotifierPanic):
-	...
-default:
-	...
-}
+Для zsh/bash:
+
+```bash
+go run ./cmd/orders
+HTTP_ADDR=:9090 go run ./cmd/orders
 ```
 
-- `errors.Is` показывает, что наша ошибка имеет где то в цепочке ошибку с нужным значением
-- `errors.As` показывает, что наша ошибка имеет где то в цепочке ошибку с нужным типом, и записывает по ссылке в типизированную ошибку, чтобы мы могли обратиться к полям ошибки
+Для PowerShell:
+
+```powershell
+$env:HTTP_ADDR = ":9090"
+go run ./cmd/orders
+Remove-Item Env:HTTP_ADDR
+```
+
+Во втором запуске адрес должен стать :9090, остальные поля заказа останутся прежними. Новый запуск снова начинает с ID 1, потому что хранилище находится в памяти процесса.
+
+## Самопроверка перед отправкой
+
+```bash
+gofmt -w .
+go mod tidy
+go build ./...
+go vet ./...
+go run ./cmd/orders
+```
+
+Проверьте ещё раз два запуска с разным адресом. В README своего результата укажите команду запуска, имя настройки, значение по умолчанию и роль каждого пакета. Приложите исходники и go.mod. Внешние библиотеки не нужны, поэтому отсутствие go.sum нормально.
+
+Собственные тесты будем писать на занятии 7. Если сейчас выполнить go test ./..., ответ «no test files» означает отсутствие тестов, а не проверку всей логики.
